@@ -1,0 +1,1 @@
+DATABASE_URL = "postgresql://postgres:4123@localhost/live_score_db"
