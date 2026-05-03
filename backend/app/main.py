@@ -10,8 +10,6 @@ manager = ConnectionManager()
 
 app = FastAPI(title="Live Score System")
 
-Base.metadata.create_all(bind=engine)
-
 app.include_router(auth.router, prefix="/auth", tags=["Auth"])
 app.include_router(team.router, prefix="/teams", tags=["Teams"])
 app.include_router(player.router, prefix="/players", tags=["Players"])
