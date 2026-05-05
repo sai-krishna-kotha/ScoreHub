@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.db.session import get_db
 from app.models.match_event import MatchEvent
 from app.models.match import Match
 from app.schemas.event import EventCreate
@@ -10,42 +10,52 @@ from app.utils.permissions import check_role
 from app.core.security import get_current_user
 from app.models.tournament import Tournament
 from app.services.scoring.factory import get_engine
-from app.models.tournament import Tournament
 from app.models.sport import Sport
+from app.models.match_phase import MatchPhase
 
 router = APIRouter()
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/")
 async def add_event(
-    data: EventCreate, 
+    data: EventCreate,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
-    ):
+):
 
+    # Validate match
     match = db.query(Match).filter(Match.id == data.match_id).first()
-
     if not match:
         raise HTTPException(status_code=404, detail="Match not found")
 
     if match.status != "live":
         raise HTTPException(status_code=400, detail="Match is not live")
-    print(f"match.tournament_id :{match.tournament_id} and match.id :{match.id}")
+
+    # Get tournament
     tournament = db.query(Tournament).filter(
         Tournament.id == match.tournament_id
     ).first()
-    
+
+    # RBAC
     check_role(db, user_id, tournament.id, ["organizer", "scorer"])
-    
+
+    # 🔥 Validate phase
+    phase = db.query(MatchPhase).filter(
+        MatchPhase.id == data.phase_id,
+        MatchPhase.match_id == data.match_id
+    ).first()
+
+    if not phase:
+        raise HTTPException(status_code=400, detail="Invalid phase")
+
+    # (optional for now)
+    # if phase.status != "active":
+    #     raise HTTPException(400, "Phase not active")
+
+    # 🔥 Create event WITH phase_id
     event = MatchEvent(
         match_id=data.match_id,
+        phase_id=data.phase_id,
         event_type=data.event_type,
         payload=data.payload
     )
@@ -53,13 +63,10 @@ async def add_event(
     db.add(event)
     db.commit()
 
-    # 🔥 Calculate updated score
+    # 🔥 Recalculate score
     events = db.query(MatchEvent).filter(
         MatchEvent.match_id == data.match_id
     ).all()
-
-    # score = calculate_cricket_score(events)
-
 
     sport = db.query(Sport).filter(
         Sport.id == tournament.sport_id
@@ -67,8 +74,8 @@ async def add_event(
 
     engine = get_engine(sport.name)
     score = engine.calculate_score(events)
-    
-    # 🔥 Broadcast to all clients
+
+    # 🔥 Broadcast
     await manager.broadcast(data.match_id, {
         "type": "score_update",
         "data": score

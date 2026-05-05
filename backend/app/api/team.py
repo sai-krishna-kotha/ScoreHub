@@ -2,19 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.utils.permissions import check_role
 from app.core.security import get_current_user
-from app.db.session import SessionLocal
+from app.db.session import get_db
 from app.models.team import Team
 from app.schemas.team import TeamCreate
 
 router = APIRouter()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/")

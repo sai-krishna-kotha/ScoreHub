@@ -3,19 +3,14 @@ from sqlalchemy.orm import Session
 from app.core.security import get_current_user
 from app.utils.permissions import check_role
 from app.models.tournament import Tournament
-from app.db.session import SessionLocal
+from app.db.session import get_db
 from app.models.match import Match
 from app.models.team import Team
 from app.schemas.match import MatchCreate
+from app.models.sport import Sport
+from app.models.match_phase import MatchPhase
 
 router = APIRouter()
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/")
@@ -24,24 +19,37 @@ def create_match(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
     ):
-
+    # RBAC
     check_role(db, user_id, data.tournament_id, ["organizer", "admin"])
-    
-    # Validate teams exist
-    team_a = db.query(Team).filter(Team.id == data.team_a_id).first()
-    team_b = db.query(Team).filter(Team.id == data.team_b_id).first()
 
-    if not team_a or not team_b:
+    # Validate teams
+    teams = db.query(Team).filter(
+        Team.id.in_([data.team_a_id, data.team_b_id])
+    ).all()
+
+    if len(teams) != 2:
         raise HTTPException(status_code=404, detail="Team not found")
 
+    team_a, team_b = teams
+
     # Validate same tournament
-    if team_a.tournament_id != data.tournament_id or team_b.tournament_id != data.tournament_id:
-        raise HTTPException(status_code=400, detail="Teams must belong to same tournament")
+    if (
+        team_a.tournament_id != data.tournament_id
+        or team_b.tournament_id != data.tournament_id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Teams must belong to same tournament"
+        )
 
-    # Prevent same team vs itself
+    # Prevent same team
     if data.team_a_id == data.team_b_id:
-        raise HTTPException(status_code=400, detail="A team cannot play against itself")
+        raise HTTPException(
+            status_code=400,
+            detail="A team cannot play against itself"
+        )
 
+    # Create match
     match = Match(
         tournament_id=data.tournament_id,
         team_a_id=data.team_a_id,
@@ -52,6 +60,36 @@ def create_match(
     db.add(match)
     db.commit()
     db.refresh(match)
+
+    # Get sport
+    tournament = db.query(Tournament).filter(
+        Tournament.id == data.tournament_id
+    ).first()
+
+    sport = db.query(Sport).filter(
+        Sport.id == tournament.sport_id
+    ).first()
+
+    # Create phases
+    phases = []
+
+    sport_config = sport.config
+    
+    if not sport_config:
+        raise HTTPException(500, "Sport configuration missing")
+    
+    phases = [
+        MatchPhase(
+            match_id=match.id,
+            phase_number=i + 1,
+            phase_type=sport_config["phase_type"]
+        )
+        for i in range(sport_config["phases"])
+    ]
+    # Save phases
+    if phases:
+        db.add_all(phases)
+        db.commit()
 
     return match
 

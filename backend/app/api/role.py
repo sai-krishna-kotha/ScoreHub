@@ -1,19 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
+from app.db.session import get_db
 from app.models.tournament_role import TournamentRole
 from app.models.tournament import Tournament
 from app.core.security import get_current_user
 
 router = APIRouter()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
         
 @router.post("/assign")
 def assign_role(

@@ -7,7 +7,7 @@ class TournamentRole(Base):
     id = Column(Integer, primary_key=True)
 
     user_id = Column(Integer, ForeignKey("users.id"))
-    tournament_id = Column(Integer, ForeignKey("tournaments.id"))
+    tournament_id = Column(Integer, ForeignKey("tournaments.id", ondelete="CASCADE"))
 
     role = Column(String)  # organizer, admin, scorer, viewer
 

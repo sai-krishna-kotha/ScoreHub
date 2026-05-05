@@ -2,20 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.utils.permissions import check_role
 from app.core.security import get_current_user
-from app.db.session import SessionLocal
+from app.db.session import get_db
 from app.models.player import Player
 from app.models.team_player import TeamPlayer
 from app.schemas.player import PlayerCreate, AddPlayerToTeam
 
 router = APIRouter()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 @router.post("/")
