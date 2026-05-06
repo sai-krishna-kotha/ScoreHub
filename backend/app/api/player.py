@@ -8,9 +8,9 @@ from app.models.team_player import TeamPlayer
 from app.schemas.player import PlayerCreate, AddPlayerToTeam
 from app.schemas.create_user import CreateUserByAdmin
 from app.models.user import User
+from app.models.player_sport import PlayerSport
 
 router = APIRouter()
-
 
 @router.post("/create-by-admin")
 def create_user_by_admin(
@@ -18,20 +18,51 @@ def create_user_by_admin(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
 ):
+    # RBAC
     check_role(db, user_id, data.tournament_id, ["organizer", "admin"])
 
-    existing = db.query(User).filter(User.email == data.email).first()
+    # Check existing user
+    existing = db.query(User).filter(
+        User.email == data.email
+    ).first()
 
     if existing:
+        player = db.query(Player).filter(
+            Player.user_id == existing.id
+        ).first()
+
+        # Create player if missing
+        if not player:
+            player = Player(user_id=existing.id)
+            db.add(player)
+            db.flush()
+
+        # Check player-sport relation
+        existing_relation = db.query(PlayerSport).filter(
+            PlayerSport.player_id == player.id,
+            PlayerSport.sport_id == data.sport_id
+        ).first()
+
+        # Create relation if missing
+        if not existing_relation:
+            player_sport = PlayerSport(
+                player_id=player.id,
+                sport_id=data.sport_id
+            )
+
+            db.add(player_sport)
+
+        db.commit()
+
         return {
-            "message": "User already exists",
+            "message": "Existing user linked successfully",
             "user": {
                 "id": existing.id,
                 "email": existing.email,
                 "name": existing.name
-            }
+            },
+            "player_id": player.id
         }
-
     user = User(
         email=data.email,
         name=data.name,
@@ -40,15 +71,26 @@ def create_user_by_admin(
     )
 
     db.add(user)
-    db.flush()  # no commit yet, but user.id available
+    db.flush()
 
+    # Create player
     player = Player(user_id=user.id)
+
     db.add(player)
+    db.flush()
+
+    # Create player-sport relation
+    player_sport = PlayerSport(
+        player_id=player.id,
+        sport_id=data.sport_id
+    )
+
+    db.add(player_sport)
 
     db.commit()
 
     return {
-        "message": "User created successfully (unclaimed account)",
+        "message": "User created successfully",
         "user": {
             "id": user.id,
             "email": user.email,

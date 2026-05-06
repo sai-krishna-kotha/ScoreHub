@@ -5,3 +5,4 @@ class CreateUserByAdmin(BaseModel):
     email: EmailStr
     name: str | None = None
     tournament_id: int
+    sport_id: int
