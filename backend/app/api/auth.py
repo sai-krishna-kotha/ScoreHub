@@ -10,15 +10,29 @@ router = APIRouter()
 
 
 @router.post("/signup")
-def signup(data: UserCreate, db: Session = Depends(get_db)):
+def signup(
+    data: UserCreate,
+    db: Session = Depends(get_db)
+):
 
-    # Check existing email
+    # Normalize email
+    email = data.email.lower()
+
+    # Check existing user
     existing_user = db.query(User).filter(
-        User.email == data.email
+        User.email == email
     ).first()
 
     # User already fully registered
     if existing_user and existing_user.password is not None:
+
+        # Soft-deleted account check
+        if existing_user.deleted_at is not None:
+            raise HTTPException(
+                status_code=403,
+                detail="Account has been deleted"
+            )
+
         raise HTTPException(
             status_code=400,
             detail="Email already registered"
@@ -46,7 +60,7 @@ def signup(data: UserCreate, db: Session = Depends(get_db)):
     # Completely new signup
     user = User(
         name=data.name,
-        email=data.email,
+        email=email,
         password=hash_password(data.password),
         is_active=True
     )
@@ -54,12 +68,18 @@ def signup(data: UserCreate, db: Session = Depends(get_db)):
     db.add(user)
     db.flush()
 
-    # Create player profile automatically
-    player = Player(user_id=user.id)
+    # Create player profile
+    player = Player(
+        user_id=user.id
+    )
 
     db.add(player)
 
+    # Commit transaction
     db.commit()
+
+    db.refresh(user)
+    db.refresh(player)
 
     return {
         "message": "User created successfully",
@@ -71,18 +91,66 @@ def signup(data: UserCreate, db: Session = Depends(get_db)):
         "player_id": player.id
     }
 
-
 @router.post("/login")
-def login(data: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == data.email).first()
+def login(
+    data: UserLogin,
+    db: Session = Depends(get_db)
+):
+
+    # Normalize email
+    email = data.email.lower()
+
+    # Find user
+    user = db.query(User).filter(
+        User.email == email
+    ).first()
+
+    # Validate user exists
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials"
+        )
+
+    # Soft delete check
+    if user.deleted_at is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="Account has been deleted"
+        )
+
+    # Account activation check
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="Account is inactive"
+        )
+
+    # Unclaimed account check
     if user.password is None:
         raise HTTPException(
             status_code=403,
             detail="Account not activated. Please set your password."
         )
-    if not user or not verify_password(data.password, user.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = create_access_token({"user_id": user.id})
+    # Password verification
+    if not verify_password(data.password, user.password):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials"
+        )
 
-    return {"access_token": token}
+    # Generate token
+    token = create_access_token({
+        "user_id": user.id
+    })
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name
+        }
+    }
