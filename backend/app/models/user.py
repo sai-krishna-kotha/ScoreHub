@@ -8,4 +8,4 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     password = Column(String, nullable=True)   # allow NULL
     name = Column(String, nullable=True)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=False)
