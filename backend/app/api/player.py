@@ -6,17 +6,57 @@ from app.db.session import get_db
 from app.models.player import Player
 from app.models.team_player import TeamPlayer
 from app.schemas.player import PlayerCreate, AddPlayerToTeam
+from app.schemas.create_user import CreateUserByAdmin
+from app.models.user import User
 
 router = APIRouter()
 
 
-@router.post("/")
-def create_player(data: PlayerCreate, db: Session = Depends(get_db)):
-    player = Player(user_id=data.user_id)
+@router.post("/create-by-admin")
+def create_user_by_admin(
+    data: CreateUserByAdmin,
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user)
+):
+    check_role(db, user_id, data.tournament_id, ["organizer", "admin"])
+
+    existing = db.query(User).filter(User.email == data.email).first()
+
+    if existing:
+        return {
+            "message": "User already exists",
+            "user": {
+                "id": existing.id,
+                "email": existing.email,
+                "name": existing.name
+            }
+        }
+
+    user = User(
+        email=data.email,
+        name=data.name,
+        password=None,
+        is_active=False
+    )
+
+    db.add(user)
+    db.flush()  # no commit yet, but user.id available
+
+    player = Player(user_id=user.id)
     db.add(player)
+
     db.commit()
-    db.refresh(player)
-    return player
+
+    return {
+        "message": "User created successfully (unclaimed account)",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name
+        },
+        "player_id": player.id
+    }
+    
 
 @router.post("/add-to-team")
 def add_player_to_team(

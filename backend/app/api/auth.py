@@ -24,7 +24,11 @@ def signup(data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login")
 def login(data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
-
+    if user.password is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Account not activated. Please set your password."
+        )
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
