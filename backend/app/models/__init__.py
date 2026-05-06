@@ -6,4 +6,5 @@ from .player import Player
 from .team_player import TeamPlayer
 from .match import Match
 from .match_event import MatchEvent
-from .tournament_role import TournamentRole 
+from .tournament_role import TournamentRole
+from .player_sport import PlayerSport
