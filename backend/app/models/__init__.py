@@ -7,4 +7,5 @@ from .team_player import TeamPlayer
 from .match import Match
 from .match_event import MatchEvent
 from .tournament_role import TournamentRole
+from .match_phase import MatchPhase
 from .player_sport import PlayerSport
