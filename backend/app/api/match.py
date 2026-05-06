@@ -15,12 +15,29 @@ router = APIRouter()
 
 @router.post("/")
 def create_match(
-    data: MatchCreate, 
+    data: MatchCreate,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user)
-    ):
+):
+
     # RBAC
-    check_role(db, user_id, data.tournament_id, ["organizer", "admin"])
+    check_role(
+        db,
+        user_id,
+        data.tournament_id,
+        ["organizer", "admin"]
+    )
+
+    # Validate tournament
+    tournament = db.query(Tournament).filter(
+        Tournament.id == data.tournament_id
+    ).first()
+
+    if not tournament:
+        raise HTTPException(
+            status_code=404,
+            detail="Tournament not found"
+        )
 
     # Validate teams
     teams = db.query(Team).filter(
@@ -28,11 +45,25 @@ def create_match(
     ).all()
 
     if len(teams) != 2:
-        raise HTTPException(status_code=404, detail="Team not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Team not found"
+        )
 
-    team_a, team_b = teams
+    # safer mapping
+    teams_map = {team.id: team for team in teams}
 
-    # Validate same tournament
+    team_a = teams_map.get(data.team_a_id)
+    team_b = teams_map.get(data.team_b_id)
+
+    # Prevent same team
+    if data.team_a_id == data.team_b_id:
+        raise HTTPException(
+            status_code=400,
+            detail="A team cannot play against itself"
+        )
+
+    # Validate tournament ownership
     if (
         team_a.tournament_id != data.tournament_id
         or team_b.tournament_id != data.tournament_id
@@ -42,11 +73,48 @@ def create_match(
             detail="Teams must belong to same tournament"
         )
 
-    # Prevent same team
-    if data.team_a_id == data.team_b_id:
+    # Prevent duplicate matches
+    existing_match = db.query(Match).filter(
+        Match.tournament_id == data.tournament_id,
+        (
+            (
+                (Match.team_a_id == data.team_a_id) &
+                (Match.team_b_id == data.team_b_id)
+            )
+            |
+            (
+                (Match.team_a_id == data.team_b_id) &
+                (Match.team_b_id == data.team_a_id)
+            )
+        )
+    ).first()
+
+    if existing_match:
         raise HTTPException(
             status_code=400,
-            detail="A team cannot play against itself"
+            detail="Match already exists between these teams"
+        )
+
+    # Validate sport config
+    sport = db.query(Sport).filter(
+        Sport.id == tournament.sport_id
+    ).first()
+
+    if not sport:
+        raise HTTPException(
+            status_code=404,
+            detail="Sport not found"
+        )
+
+    sport_config = sport.config or {}
+
+    num_phases = sport_config.get("phases")
+    phase_type = sport_config.get("phase_type")
+
+    if not num_phases or not phase_type:
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid sport configuration"
         )
 
     # Create match
@@ -58,40 +126,36 @@ def create_match(
     )
 
     db.add(match)
-    db.commit()
-    db.refresh(match)
-
-    # Get sport
-    tournament = db.query(Tournament).filter(
-        Tournament.id == data.tournament_id
-    ).first()
-
-    sport = db.query(Sport).filter(
-        Sport.id == tournament.sport_id
-    ).first()
+    db.flush()  # match.id available without commit
 
     # Create phases
-    phases = []
-
-    sport_config = sport.config
-    
-    if not sport_config:
-        raise HTTPException(500, "Sport configuration missing")
-    
     phases = [
         MatchPhase(
             match_id=match.id,
             phase_number=i + 1,
-            phase_type=sport_config["phase_type"]
+            phase_type=phase_type,
+            status="pending"
         )
-        for i in range(sport_config["phases"])
+        for i in range(num_phases)
     ]
-    # Save phases
-    if phases:
-        db.add_all(phases)
-        db.commit()
 
-    return match
+    db.add_all(phases)
+
+    # Commit transaction
+    db.commit()
+
+    db.refresh(match)
+
+    return {
+        "message": "Match created successfully",
+        "match": {
+            "id": match.id,
+            "tournament_id": match.tournament_id,
+            "team_a_id": match.team_a_id,
+            "team_b_id": match.team_b_id,
+            "status": match.status
+        }
+    }
 
 @router.put("/{match_id}/start")
 def start_match(
