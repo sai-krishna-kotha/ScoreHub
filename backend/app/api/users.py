@@ -25,4 +25,3 @@ def search_users(
         for u in users
     ]
     
-def
